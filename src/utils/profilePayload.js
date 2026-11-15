@@ -5,6 +5,7 @@ const PROFILE_FIELDS = {
     basic: [
         "fullName",
         "gender",
+        "genderDescription",
         "dateOfBirth",
         "heightCm",
         "maritalStatus",
@@ -73,6 +74,7 @@ const PROFILE_FIELDS = {
         "ageMax",
         "heightMinCm",
         "heightMaxCm",
+        "preferredGenders",
         "maritalStatuses",
         "religions",
         "communities",
@@ -96,6 +98,7 @@ const ARRAY_FIELDS = new Set([
     "languagesKnown",
     "hobbies",
     "interests",
+    "preferredGenders",
     "maritalStatuses",
     "religions",
     "communities",
@@ -139,10 +142,15 @@ function cleanValue(key, value) {
     }
 
     if (NUMBER_FIELDS.has(key)) {
-        if (value === "" || value === null) return undefined;
+        if (value === "" || value === null) {
+            return undefined;
+        }
 
         const number = Number(value);
-        return Number.isFinite(number) ? number : undefined;
+
+        return Number.isFinite(number)
+            ? number
+            : undefined;
     }
 
     if (typeof value === "string") {
@@ -153,19 +161,34 @@ function cleanValue(key, value) {
 }
 
 function pickNested(source, allowedFields) {
-    if (!source || typeof source !== "object" || Array.isArray(source)) {
+    if (
+        !source ||
+        typeof source !== "object" ||
+        Array.isArray(source)
+    ) {
         return {};
     }
 
     const result = {};
 
     for (const key of allowedFields) {
-        if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+        if (
+            !Object.prototype.hasOwnProperty.call(
+                source,
+                key
+            )
+        ) {
+            continue;
+        }
 
         if (key === "birthDetails") {
             const birth = source.birthDetails;
 
-            if (!birth || typeof birth !== "object" || Array.isArray(birth)) {
+            if (
+                !birth ||
+                typeof birth !== "object" ||
+                Array.isArray(birth)
+            ) {
                 continue;
             }
 
@@ -179,18 +202,27 @@ function pickNested(source, allowedFields) {
                 "horoscopeAvailable",
                 "dosham",
             ]) {
-                if (Object.prototype.hasOwnProperty.call(birth, birthKey)) {
-                    result.birthDetails[birthKey] = cleanValue(
-                        birthKey,
-                        birth[birthKey]
-                    );
+                if (
+                    Object.prototype.hasOwnProperty.call(
+                        birth,
+                        birthKey
+                    )
+                ) {
+                    result.birthDetails[birthKey] =
+                        cleanValue(
+                            birthKey,
+                            birth[birthKey]
+                        );
                 }
             }
 
             continue;
         }
 
-        result[key] = cleanValue(key, source[key]);
+        result[key] = cleanValue(
+            key,
+            source[key]
+        );
     }
 
     return result;
@@ -199,34 +231,60 @@ function pickNested(source, allowedFields) {
 export function pickProfilePayload(body = {}) {
     const payload = {};
 
-    if (Object.prototype.hasOwnProperty.call(body, "profileFor")) {
-        payload.profileFor = cleanValue("profileFor", body.profileFor);
+    if (
+        Object.prototype.hasOwnProperty.call(
+            body,
+            "profileFor"
+        )
+    ) {
+        payload.profileFor = cleanValue(
+            "profileFor",
+            body.profileFor
+        );
     }
 
-    for (const [group, fields] of Object.entries(PROFILE_FIELDS)) {
+    for (const [group, fields] of Object.entries(
+        PROFILE_FIELDS
+    )) {
         if (Array.isArray(fields)) {
-            payload[group] = pickNested(body[group], fields);
+            payload[group] = pickNested(
+                body[group],
+                fields
+            );
         }
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "introduction")) {
+    if (
+        Object.prototype.hasOwnProperty.call(
+            body,
+            "introduction"
+        )
+    ) {
         payload.introduction = cleanValue(
             "introduction",
             body.introduction
         );
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "currentStep")) {
+    if (
+        Object.prototype.hasOwnProperty.call(
+            body,
+            "currentStep"
+        )
+    ) {
         const step = Number(body.currentStep);
 
         if (Number.isInteger(step)) {
-            payload.currentStep = Math.min(6, Math.max(0, step));
+            payload.currentStep = Math.min(
+                6,
+                Math.max(0, step)
+            );
         }
     }
 
     // Photos are deliberately excluded.
-    // Add photos only through a secure upload endpoint that verifies
-    // the uploaded file and its ownership.
+    // Add photos only through a secure upload endpoint
+    // that verifies the uploaded file and its ownership.
 
     return payload;
 }

@@ -29,6 +29,21 @@ const REQUIRED_FIELDS = [
     "partnerPreferences.ageMax",
 ];
 
+const PROFILE_GENDERS = [
+    "male",
+    "female",
+    "non_binary",
+    "self_described",
+    "prefer_not_to_say",
+];
+
+const PARTNER_GENDERS = [
+    "male",
+    "female",
+    "non_binary",
+    "self_described",
+];
+
 function getValue(object, path) {
     return path.split(".").reduce(
         (value, key) => value?.[key],
@@ -38,38 +53,129 @@ function getValue(object, path) {
 
 function isFilled(value) {
     if (value === undefined || value === null) return false;
-    if (typeof value === "string") return value.trim().length > 0;
-    if (Array.isArray(value)) return value.length > 0;
+
+    if (typeof value === "string") {
+        return value.trim().length > 0;
+    }
+
+    if (Array.isArray(value)) {
+        return value.length > 0;
+    }
+
     return true;
 }
 
+function getRequiredFields(profile) {
+    const fields = [...REQUIRED_FIELDS];
+
+    // A custom gender description is required only for self_described.
+    if (profile.basic?.gender === "self_described") {
+        fields.push("basic.genderDescription");
+    }
+
+    return fields;
+}
+
 export function calculateCompletion(profile) {
-    const filled = REQUIRED_FIELDS.filter((path) =>
+    const requiredFields = getRequiredFields(profile);
+
+    const filled = requiredFields.filter((path) =>
         isFilled(getValue(profile, path))
     ).length;
 
-    return Math.round((filled / REQUIRED_FIELDS.length) * 100);
+    return Math.round(
+        (filled / requiredFields.length) * 100
+    );
 }
 
 export function validateProfileForSubmission(profile) {
     const errors = [];
 
-    for (const path of REQUIRED_FIELDS) {
+    const requiredFields = getRequiredFields(profile);
+
+    // Required fields
+    for (const path of requiredFields) {
         if (!isFilled(getValue(profile, path))) {
-            errors.push(`${path.replaceAll(".", " ")} is required.`);
+            errors.push(
+                `${path.replaceAll(".", " ")} is required.`
+            );
         }
     }
 
+    // Validate profile gender.
+    if (
+        isFilled(profile.basic?.gender) &&
+        !PROFILE_GENDERS.includes(profile.basic.gender)
+    ) {
+        errors.push("Please select a valid profile gender.");
+    }
+
+    // Validate custom gender description.
+    if (profile.basic?.gender === "self_described") {
+        const description = profile.basic?.genderDescription;
+
+        if (
+            typeof description !== "string" ||
+            !description.trim()
+        ) {
+            errors.push(
+                "Please describe your gender."
+            );
+        } else if (description.trim().length > 100) {
+            errors.push(
+                "Gender description cannot exceed 100 characters."
+            );
+        }
+    }
+
+    // Validate partner gender preferences.
+    const preferredGenders =
+        profile.partnerPreferences?.preferredGenders;
+
+    if (
+        preferredGenders !== undefined &&
+        preferredGenders !== null
+    ) {
+        if (!Array.isArray(preferredGenders)) {
+            errors.push(
+                "Partner gender preferences must be a list."
+            );
+        } else {
+            const invalidGenders = preferredGenders.filter(
+                (gender) => !PARTNER_GENDERS.includes(gender)
+            );
+
+            if (invalidGenders.length > 0) {
+                errors.push(
+                    "One or more selected partner gender preferences are invalid."
+                );
+            }
+
+            if (
+                new Set(preferredGenders).size !==
+                preferredGenders.length
+            ) {
+                errors.push(
+                    "Duplicate partner gender preferences are not allowed."
+                );
+            }
+        }
+    }
+
+    // Date of birth and age validation.
     const dob = profile.basic?.dateOfBirth
         ? new Date(profile.basic.dateOfBirth)
         : null;
 
     if (!dob || !Number.isFinite(dob.getTime())) {
-        errors.push("A valid date of birth is required.");
+        errors.push(
+            "A valid date of birth is required."
+        );
     } else {
         const today = new Date();
 
-        let age = today.getFullYear() - dob.getFullYear();
+        let age =
+            today.getFullYear() - dob.getFullYear();
 
         const beforeBirthday =
             today.getMonth() < dob.getMonth() ||
@@ -81,14 +187,25 @@ export function validateProfileForSubmission(profile) {
         if (beforeBirthday) age--;
 
         if (age < 18) {
-            errors.push("You must be at least 18 years old.");
+            errors.push(
+                "You must be at least 18 years old."
+            );
+        }
+
+        if (age > 100) {
+            errors.push(
+                "Please check your date of birth."
+            );
         }
 
         if (dob > today) {
-            errors.push("Date of birth cannot be in the future.");
+            errors.push(
+                "Date of birth cannot be in the future."
+            );
         }
     }
 
+    // Partner age range validation.
     const preferences = profile.partnerPreferences || {};
 
     if (
@@ -101,6 +218,7 @@ export function validateProfileForSubmission(profile) {
         );
     }
 
+    // Partner height range validation.
     if (
         preferences.heightMinCm != null &&
         preferences.heightMaxCm != null &&
@@ -111,6 +229,7 @@ export function validateProfileForSubmission(profile) {
         );
     }
 
+    // Family validation.
     const family = profile.family || {};
 
     if (
@@ -118,7 +237,9 @@ export function validateProfileForSubmission(profile) {
         family.brothers != null &&
         family.brothersMarried > family.brothers
     ) {
-        errors.push("Married brothers cannot exceed total brothers.");
+        errors.push(
+            "Married brothers cannot exceed total brothers."
+        );
     }
 
     if (
@@ -126,7 +247,9 @@ export function validateProfileForSubmission(profile) {
         family.sisters != null &&
         family.sistersMarried > family.sisters
     ) {
-        errors.push("Married sisters cannot exceed total sisters.");
+        errors.push(
+            "Married sisters cannot exceed total sisters."
+        );
     }
 
     return errors;
