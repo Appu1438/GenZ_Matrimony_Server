@@ -1,8 +1,11 @@
+
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
+
 import MatrimonyProfile from "../models/MatrimonyProfile.js";
+import ProfileRevision from "../models/ProfileRevision.js";
 
 const PROFILE_IMAGE_DIR = path.resolve(
     process.cwd(),
@@ -49,36 +52,25 @@ function lockError(res) {
     });
 }
 
-function applyApprovedEditReset(profile) {
-    if (profile.status !== "approved") return;
-
-    profile.status = "draft";
-    profile.approvedAt = null;
-    profile.reviewedAt = null;
-    profile.reviewedBy = null;
-    profile.submittedAt = null;
-
-    profile.reviewNote =
-        "Your profile has been updated and must be submitted for review again.";
-}
-
-async function getOrCreateEditableProfile(req, res) {
-    let profile = await MatrimonyProfile.findOne({
-        user: req.user._id,
-    });
-
-    if (!profile) {
-        profile = new MatrimonyProfile({
-            user: req.user._id,
+function handleError(res, error) {
+    if (error.status) {
+        return res.status(error.status).json({
+            success: false,
+            message: error.message,
         });
     }
 
-    if (["pending_review", "rejected"].includes(profile.status)) {
-        lockError(res);
-        return null;
+    if (error.name === "ValidationError") {
+        return res.status(422).json({
+            success: false,
+            message: error.message,
+        });
     }
 
-    return profile;
+    return res.status(500).json({
+        success: false,
+        message: "Unable to process the photo. Please try again.",
+    });
 }
 
 async function processImage(buffer) {
@@ -161,27 +153,138 @@ async function processImage(buffer) {
     return { id, filePath };
 }
 
-function handleError(res, error) {
-    if (error.status) {
-        return res.status(error.status).json({
-            success: false,
-            message: error.message,
-        });
-    }
+/*
+|--------------------------------------------------------------------------
+| Initial profile photo helpers
+|--------------------------------------------------------------------------
+*/
 
-    if (error.name === "ValidationError") {
-        return res.status(422).json({
-            success: false,
-            message: error.message,
-        });
-    }
-
-    return res.status(500).json({
-        success: false,
-        message:
-            "Unable to process the photo. Please try again.",
+async function getOrCreateEditableProfile(req, res) {
+    let profile = await MatrimonyProfile.findOne({
+        user: req.user._id,
     });
+
+    if (!profile) {
+        profile = new MatrimonyProfile({
+            user: req.user._id,
+        });
+    }
+
+    // Approved profiles must use revision photo endpoints.
+    if (
+        ["pending_review", "rejected", "approved"].includes(
+            profile.status
+        )
+    ) {
+        lockError(res);
+        return null;
+    }
+
+    return profile;
 }
+
+/*
+|--------------------------------------------------------------------------
+| Revision photo helpers
+|--------------------------------------------------------------------------
+*/
+
+function createProfileSnapshot(profile) {
+    const snapshot = profile.toObject({
+        depopulate: true,
+        versionKey: false,
+    });
+
+    delete snapshot._id;
+    delete snapshot.user;
+    delete snapshot.__v;
+
+    // Do not copy review lifecycle metadata into the revision snapshot.
+    delete snapshot.status;
+    delete snapshot.reviewNote;
+    delete snapshot.reviewedBy;
+    delete snapshot.reviewedAt;
+    delete snapshot.submittedAt;
+    delete snapshot.approvedAt;
+
+    delete snapshot.createdAt;
+    delete snapshot.updatedAt;
+
+    return snapshot;
+}
+
+async function getOrCreateDraftRevision(req, res) {
+    const profile = await MatrimonyProfile.findOne({
+        user: req.user._id,
+    });
+
+    if (!profile) {
+        res.status(404).json({
+            success: false,
+            message: "Profile not found.",
+        });
+        return null;
+    }
+
+    if (profile.status !== "approved") {
+        lockError(res);
+        return null;
+    }
+
+    let revision = await ProfileRevision.findOne({
+        user: req.user._id,
+        profile: profile._id,
+        status: {
+            $in: ["draft", "needs_changes", "pending_review"],
+        },
+    }).sort({ createdAt: -1 });
+
+    if (revision?.status === "pending_review") {
+        lockError(res);
+        return null;
+    }
+
+    if (!revision) {
+        const latestRevision = await ProfileRevision.findOne({
+            profile: profile._id,
+        }).sort({ revisionNumber: -1 });
+
+        revision = new ProfileRevision({
+            user: req.user._id,
+            profile: profile._id,
+            revisionNumber: (latestRevision?.revisionNumber || 0) + 1,
+            profileData: createProfileSnapshot(profile),
+            completionPercentage: profile.completionPercentage || 0,
+            status: "draft",
+            baseProfileUpdatedAt: profile.updatedAt || null,
+        });
+    }
+
+    return revision;
+}
+
+function getRevisionPhotos(revision) {
+    const profileData = revision.profileData || {};
+
+    if (!profileData.photos) {
+        profileData.photos = {
+            profilePhoto: null,
+            gallery: [],
+        };
+    }
+
+    if (!Array.isArray(profileData.photos.gallery)) {
+        profileData.photos.gallery = [];
+    }
+
+    return profileData.photos;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Initial profile photo upload
+|--------------------------------------------------------------------------
+*/
 
 export const uploadProfilePhoto = async (req, res) => {
     let savedFile;
@@ -211,8 +314,6 @@ export const uploadProfilePhoto = async (req, res) => {
         profile.photos = profile.photos || {};
         profile.photos.profilePhoto = photo;
 
-        applyApprovedEditReset(profile);
-
         await profile.save();
         persisted = true;
 
@@ -237,6 +338,12 @@ export const uploadProfilePhoto = async (req, res) => {
     }
 };
 
+/*
+|--------------------------------------------------------------------------
+| Initial profile gallery upload
+|--------------------------------------------------------------------------
+*/
+
 export const uploadGalleryPhoto = async (req, res) => {
     let savedFile;
     let persisted = false;
@@ -260,10 +367,7 @@ export const uploadGalleryPhoto = async (req, res) => {
         profile.photos.gallery =
             profile.photos.gallery || [];
 
-        if (
-            profile.photos.gallery.length >=
-            MAX_GALLERY_PHOTOS
-        ) {
+        if (profile.photos.gallery.length >= MAX_GALLERY_PHOTOS) {
             return res.status(422).json({
                 success: false,
                 code: "GALLERY_LIMIT_REACHED",
@@ -279,8 +383,6 @@ export const uploadGalleryPhoto = async (req, res) => {
         };
 
         profile.photos.gallery.push(photo);
-
-        applyApprovedEditReset(profile);
 
         await profile.save();
         persisted = true;
@@ -301,6 +403,12 @@ export const uploadGalleryPhoto = async (req, res) => {
         return handleError(res, error);
     }
 };
+
+/*
+|--------------------------------------------------------------------------
+| Initial profile photo deletion
+|--------------------------------------------------------------------------
+*/
 
 export const deleteProfilePhoto = async (req, res) => {
     try {
@@ -324,15 +432,17 @@ export const deleteProfilePhoto = async (req, res) => {
             });
         }
 
-        if (["pending_review", "rejected"].includes(profile.status)) {
+        if (
+            ["pending_review", "rejected", "approved"].includes(
+                profile.status
+            )
+        ) {
             return lockError(res);
         }
 
         let found = false;
 
-        if (
-            profile.photos?.profilePhoto?.publicId === imageId
-        ) {
+        if (profile.photos?.profilePhoto?.publicId === imageId) {
             profile.photos.profilePhoto = null;
             found = true;
         } else {
@@ -355,8 +465,6 @@ export const deleteProfilePhoto = async (req, res) => {
             });
         }
 
-        applyApprovedEditReset(profile);
-
         await profile.save();
 
         await removeStoredImage(imageId).catch(() => { });
@@ -366,6 +474,195 @@ export const deleteProfilePhoto = async (req, res) => {
             message: "Photo deleted successfully.",
             data: {
                 photos: profile.photos,
+            },
+        });
+    } catch (error) {
+        return handleError(res, error);
+    }
+};
+
+/*
+|--------------------------------------------------------------------------
+| Revision profile photo upload
+|--------------------------------------------------------------------------
+*/
+
+export const uploadRevisionProfilePhoto = async (req, res) => {
+    let savedFile;
+    let persisted = false;
+
+    try {
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: "Choose an image to upload.",
+            });
+        }
+
+        const revision = await getOrCreateDraftRevision(req, res);
+        if (!revision) return;
+
+        savedFile = await processImage(req.file.buffer);
+
+        const photos = getRevisionPhotos(revision);
+
+        const photo = {
+            publicId: savedFile.id,
+            url: photoUrl(req, savedFile.id),
+        };
+
+        photos.profilePhoto = photo;
+
+        revision.profileData.photos = photos;
+        revision.markModified("profileData");
+
+        await revision.save();
+        persisted = true;
+
+        // Do not delete the previous photo. It may belong to the
+        // approved profile or another retained revision.
+
+        return res.status(200).json({
+            success: true,
+            message: "Revision profile photo uploaded successfully.",
+            data: {
+                photo,
+                photos,
+                revision,
+            },
+        });
+    } catch (error) {
+        if (savedFile?.id && !persisted) {
+            await removeStoredImage(savedFile.id).catch(() => { });
+        }
+
+        return handleError(res, error);
+    }
+};
+
+/*
+|--------------------------------------------------------------------------
+| Revision gallery photo upload
+|--------------------------------------------------------------------------
+*/
+
+export const uploadRevisionGalleryPhoto = async (req, res) => {
+    let savedFile;
+    let persisted = false;
+
+    try {
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: "Choose an image to upload.",
+            });
+        }
+
+        const revision = await getOrCreateDraftRevision(req, res);
+        if (!revision) return;
+
+        const photos = getRevisionPhotos(revision);
+
+        if (photos.gallery.length >= MAX_GALLERY_PHOTOS) {
+            return res.status(422).json({
+                success: false,
+                code: "GALLERY_LIMIT_REACHED",
+                message: `You can upload up to ${MAX_GALLERY_PHOTOS} gallery photos.`,
+            });
+        }
+
+        savedFile = await processImage(req.file.buffer);
+
+        const photo = {
+            publicId: savedFile.id,
+            url: photoUrl(req, savedFile.id),
+        };
+
+        photos.gallery.push(photo);
+
+        revision.profileData.photos = photos;
+        revision.markModified("profileData");
+
+        await revision.save();
+        persisted = true;
+
+        return res.status(201).json({
+            success: true,
+            message: "Revision gallery photo uploaded successfully.",
+            data: {
+                photo,
+                photos,
+                revision,
+            },
+        });
+    } catch (error) {
+        if (savedFile?.id && !persisted) {
+            await removeStoredImage(savedFile.id).catch(() => { });
+        }
+
+        return handleError(res, error);
+    }
+};
+
+/*
+|--------------------------------------------------------------------------
+| Revision photo deletion
+|--------------------------------------------------------------------------
+*/
+
+export const deleteRevisionPhoto = async (req, res) => {
+    try {
+        const { imageId } = req.params;
+
+        if (!/^[0-9a-f-]{36}$/i.test(imageId)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid image ID.",
+            });
+        }
+
+        const revision = await getOrCreateDraftRevision(req, res);
+        if (!revision) return;
+
+        const photos = getRevisionPhotos(revision);
+        let found = false;
+
+        if (photos.profilePhoto?.publicId === imageId) {
+            photos.profilePhoto = null;
+            found = true;
+        } else {
+            const index = photos.gallery.findIndex(
+                (photo) => photo.publicId === imageId
+            );
+
+            if (index !== -1) {
+                photos.gallery.splice(index, 1);
+                found = true;
+            }
+        }
+
+        if (!found) {
+            return res.status(404).json({
+                success: false,
+                message: "Photo not found in your revision.",
+            });
+        }
+
+        revision.profileData.photos = photos;
+        revision.markModified("profileData");
+
+        await revision.save();
+
+        // Intentionally do not delete the physical image here.
+        // It may still be referenced by the approved profile or
+        // another saved revision.
+
+        return res.status(200).json({
+            success: true,
+            message: "Revision photo deleted successfully.",
+            data: {
+                photos,
+                revision,
             },
         });
     } catch (error) {

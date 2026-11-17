@@ -7,6 +7,9 @@ import {
     uploadProfilePhoto,
     uploadGalleryPhoto,
     deleteProfilePhoto,
+    uploadRevisionProfilePhoto,
+    uploadRevisionGalleryPhoto,
+    deleteRevisionPhoto,
 } from "../controllers/profilePhoto.controller.js";
 
 const router = Router();
@@ -56,6 +59,24 @@ router.delete(
     "/:imageId",
     authenticate,
     deleteProfilePhoto
+);
+
+// New revision photo routes
+router.post(
+    "/revision/profile",
+    upload.single("photo"),
+    uploadRevisionProfilePhoto
+);
+
+router.post(
+    "/revision/gallery",
+    upload.single("photo"),
+    uploadRevisionGalleryPhoto
+);
+
+router.delete(
+    "/revision/:imageId",
+    deleteRevisionPhoto
 );
 
 // Handle Multer errors.

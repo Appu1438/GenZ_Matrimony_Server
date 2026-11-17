@@ -6,6 +6,7 @@ import {
     saveMyProfile,
     submitMyProfile,
 } from "../controllers/profile.controller.js";
+import { getMyRevision, saveMyRevision, submitMyRevision } from "../controllers/profileRevision.controller.js";
 
 const router = Router();
 
@@ -25,5 +26,16 @@ router.use(authenticate);
 router.get("/me", getMyProfile);
 router.put("/me", profileWriteLimiter, saveMyProfile);
 router.post("/me/submit", profileWriteLimiter, submitMyProfile);
+
+/* ==========================================================================
+   Approved Profile Revision Routes
+   ========================================================================== */
+
+router.get("/me/revision", getMyRevision);
+
+router.put("/me/revision", profileWriteLimiter, saveMyRevision);
+
+router.post("/me/revision/submit", profileWriteLimiter, submitMyRevision);
+
 
 export default router;
