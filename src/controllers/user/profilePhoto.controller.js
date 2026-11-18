@@ -4,8 +4,8 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 
-import MatrimonyProfile from "../models/MatrimonyProfile.js";
-import ProfileRevision from "../models/ProfileRevision.js";
+import MatrimonyProfile from "../../models/MatrimonyProfile.js";
+import ProfileRevision from "../../models/ProfileRevision.js";
 
 const PROFILE_IMAGE_DIR = path.resolve(
     process.cwd(),

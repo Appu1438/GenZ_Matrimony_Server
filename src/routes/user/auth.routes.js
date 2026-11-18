@@ -2,19 +2,8 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
 
-import {
-    register,
-    login,
-    verifyEmail,
-    refresh,
-    logout,
-    me,
-    resendVerificationEmail,
-    forgotPassword,
-    resetPassword,
-} from "../controllers/auth.controller.js";
-
-import { authenticate } from "../middleware/auth.middleware.js";
+import { authenticate } from "../../middleware/auth.middleware.js";
+import { forgotPassword, login, logout, me, refresh, register, resendVerificationEmail, resetPassword, verifyEmail } from "../../controllers/user/auth.controller.js";
 
 const router = Router();
 

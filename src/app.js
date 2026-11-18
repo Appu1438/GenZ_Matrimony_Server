@@ -5,9 +5,14 @@ import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
 import path from "node:path";
 
-import authRoutes from "./routes/auth.routes.js";
-import profileRoutes from "./routes/profile.routes.js";
-import profilePhotoRoutes from "./routes/profilePhoto.routes.js";
+// User Routes
+import authRoutes from "./routes/user/auth.routes.js";
+import profileRoutes from "./routes/user/profile.routes.js";
+import profilePhotoRoutes from "./routes/user/profilePhoto.routes.js";
+
+//Admin Routes
+import adminAuthRoutes from "./routes/admin/adminAuth.routes.js";
+
 
 dotenv.config();
 
@@ -93,6 +98,8 @@ app.use(
     "/api/profile/photos",
     profilePhotoRoutes
 );
+
+app.use("/api/admin/auth", adminAuthRoutes);
 
 // 404 handler
 app.use((req, res) => {

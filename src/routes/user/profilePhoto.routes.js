@@ -1,7 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 
-import { authenticate } from "../middleware/auth.middleware.js";
+import { authenticate } from "../../middleware/auth.middleware.js";
 
 import {
     uploadProfilePhoto,
@@ -10,7 +10,7 @@ import {
     uploadRevisionProfilePhoto,
     uploadRevisionGalleryPhoto,
     deleteRevisionPhoto,
-} from "../controllers/profilePhoto.controller.js";
+} from "../../controllers/user/profilePhoto.controller.js";
 
 const router = Router();
 

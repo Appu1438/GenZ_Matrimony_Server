@@ -1,12 +1,8 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
-import { authenticate } from "../middleware/auth.middleware.js";
-import {
-    getMyProfile,
-    saveMyProfile,
-    submitMyProfile,
-} from "../controllers/profile.controller.js";
-import { getMyRevision, saveMyRevision, submitMyRevision } from "../controllers/profileRevision.controller.js";
+import { authenticate } from "../../middleware/auth.middleware.js";
+import { getMyProfile, saveMyProfile, submitMyProfile } from "../../controllers/user/profile.controller.js";
+import { getMyRevision, saveMyRevision, submitMyRevision } from "../../controllers/user/profileRevision.controller.js";
 
 const router = Router();
 

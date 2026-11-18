@@ -1,4 +1,4 @@
-import MatrimonyProfile from "../models/MatrimonyProfile.js";
+import MatrimonyProfile from "../../models/MatrimonyProfile.js";
 
 export const listPendingProfiles = async (req, res, next) => {
     try {

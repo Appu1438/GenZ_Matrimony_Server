@@ -3,16 +3,16 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 
-import User from "../models/User.js";
+import User from "../../models/User.js";
 
 import {
     accessToken,
     refreshToken,
     emailToken,
     hashToken,
-} from "../utils/tokens.js";
+} from "../../utils/tokens.js";
 
-import { sendPasswordResetEmail, sendVerificationEmail } from "../services/email.service.js";
+import { sendPasswordResetEmail, sendVerificationEmail } from "../../services/email.service.js";
 
 import {
     ACCESS_COOKIE,
@@ -21,7 +21,7 @@ import {
     clearAccessCookieOptions,
     clearRefreshCookieOptions,
     refreshCookieOptions,
-} from "../config/cookies.js";
+} from "../../config/cookies.js";
 
 // ==========================================
 // HELPER FUNCTIONS

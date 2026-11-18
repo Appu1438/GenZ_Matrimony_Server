@@ -1,15 +1,15 @@
 
-import MatrimonyProfile from "../models/MatrimonyProfile.js";
+import MatrimonyProfile from "../../models/MatrimonyProfile.js";
 
 import {
     calculateCompletion,
     validateProfileForSubmission,
-} from "../utils/profileCompletion.js";
+} from "../../utils/profileCompletion.js";
 
 import {
     pickProfilePayload,
     mergeProfile,
-} from "../utils/profilePayload.js";
+} from "../../utils/profilePayload.js";
 
 const profileResponse = (profile) => ({
     profile,
