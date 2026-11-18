@@ -1,96 +1,237 @@
-import MatrimonyProfile from "../../models/MatrimonyProfile.js";
 
-export const listPendingProfiles = async (req, res, next) => {
+import mongoose from "mongoose";
+import MatrimonyProfile from "../../models/MatrimonyProfile.js";
+import User from "../../models/User.js";
+
+const PROFILE_STATUSES = [
+    "draft",
+    "pending_review",
+    "needs_changes",
+    "approved",
+    "rejected",
+];
+
+const REVIEW_ACTIONS = {
+    approve: "approved",
+    needs_changes: "needs_changes",
+    reject: "rejected",
+};
+
+const escapeRegex = (value = "") =>
+    value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// =====================================================
+// GET ALL PROFILES
+// =====================================================
+
+export const listProfiles = async (req, res, next) => {
     try {
         const page = Math.max(1, Number(req.query.page) || 1);
         const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
+        const skip = (page - 1) * limit;
+
+        const search = String(req.query.search || "").trim();
+        const status = String(req.query.status || "all");
+
+        const query = {};
+
+        if (status !== "all") {
+            if (!PROFILE_STATUSES.includes(status)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid profile status.",
+                });
+            }
+
+            query.status = status;
+        }
+
+        if (search) {
+            const regex = new RegExp(escapeRegex(search), "i");
+
+            const matchingUsers = await User.find({
+                $or: [
+                    { fullName: regex },
+                    { email: regex },
+                    { mobile: regex },
+                ],
+            }).select("_id").lean();
+
+            query.$or = [
+                { "basic.fullName": regex },
+                { user: { $in: matchingUsers.map((user) => user._id) } },
+            ];
+        }
 
         const [profiles, total] = await Promise.all([
-            MatrimonyProfile.find({ status: "pending_review" })
+            MatrimonyProfile.find(query)
                 .populate("user", "fullName email mobile")
-                .sort({ submittedAt: 1 })
-                .skip((page - 1) * limit)
+                .sort({ updatedAt: -1, _id: -1 })
+                .skip(skip)
                 .limit(limit)
                 .lean(),
-            MatrimonyProfile.countDocuments({ status: "pending_review" }),
+
+            MatrimonyProfile.countDocuments(query),
         ]);
 
         return res.status(200).json({
             success: true,
-            data: { profiles, pagination: { page, limit, total, pages: Math.ceil(total / limit) } },
+            data: {
+                profiles,
+                pagination: {
+                    page,
+                    limit,
+                    total,
+                    pages: Math.ceil(total / limit),
+                },
+            },
         });
     } catch (error) {
         next(error);
     }
 };
 
-export const getProfileForReview = async (req, res, next) => {
+// =====================================================
+// PROFILE STATISTICS
+// =====================================================
+
+export const getProfileStats = async (req, res, next) => {
     try {
-        const profile = await MatrimonyProfile.findById(req.params.id)
-            .populate("user", "fullName email mobile")
-            .populate("reviewedBy", "fullName email");
+        const counts = await MatrimonyProfile.aggregate([
+            {
+                $group: {
+                    _id: "$status",
+                    count: { $sum: 1 },
+                },
+            },
+        ]);
 
-        if (!profile) {
-            return res.status(404).json({ success: false, message: "Profile not found." });
-        }
+        const stats = {
+            total: 0,
+            draft: 0,
+            pending_review: 0,
+            needs_changes: 0,
+            approved: 0,
+            rejected: 0,
+        };
 
-        return res.status(200).json({ success: true, data: { profile } });
+        counts.forEach(({ _id, count }) => {
+            if (Object.prototype.hasOwnProperty.call(stats, _id)) {
+                stats[_id] = count;
+            }
+            stats.total += count;
+        });
+
+        return res.status(200).json({
+            success: true,
+            data: stats,
+        });
     } catch (error) {
         next(error);
     }
 };
 
-export const reviewProfile = async (req, res, next) => {
-    try {
-        const { action, note = "" } = req.body;
+// =====================================================
+// GET SINGLE PROFILE
+// =====================================================
 
-        if (!["approve", "needs_changes", "reject"].includes(action)) {
+export const getProfileForReview = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+
+        if (!mongoose.isValidObjectId(id)) {
             return res.status(400).json({
                 success: false,
-                message: "Action must be approve, needs_changes or reject.",
+                message: "Invalid profile ID.",
+            });
+        }
+
+        const profile = await MatrimonyProfile.findById(id)
+            .populate("user", "fullName email mobile createdAt")
+            .populate("reviewedBy", "fullName email")
+            .lean();
+
+        if (!profile) {
+            return res.status(404).json({
+                success: false,
+                message: "Profile not found.",
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            data: { profile },
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// =====================================================
+// REVIEW / CHANGE PROFILE STATUS
+// =====================================================
+
+export const reviewProfile = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { action, note = "" } = req.body;
+
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid profile ID.",
+            });
+        }
+
+        if (!Object.prototype.hasOwnProperty.call(REVIEW_ACTIONS, action)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid review action.",
             });
         }
 
         if (typeof note !== "string" || note.trim().length > 1000) {
-            return res.status(400).json({ success: false, message: "Review note must be under 1000 characters." });
-        }
-
-        if (action !== "approve" && !note.trim()) {
             return res.status(400).json({
                 success: false,
-                message: "A reason is required for this review action.",
+                message: "Remarks must be under 1000 characters.",
             });
         }
 
-        const profile = await MatrimonyProfile.findById(req.params.id);
+        const trimmedNote = note.trim();
+
+        if (action !== "approve" && !trimmedNote) {
+            return res.status(400).json({
+                success: false,
+                message: "Please provide remarks for this action.",
+            });
+        }
+
+        const profile = await MatrimonyProfile.findById(id);
 
         if (!profile) {
-            return res.status(404).json({ success: false, message: "Profile not found." });
-        }
-
-        if (profile.status !== "pending_review") {
-            return res.status(409).json({
+            return res.status(404).json({
                 success: false,
-                message: "Only profiles awaiting review can be reviewed.",
+                message: "Profile not found.",
             });
         }
 
-        profile.status = action === "approve"
-            ? "approved"
-            : action === "needs_changes"
-                ? "needs_changes"
-                : "rejected";
+        // Admin can correct the status of any profile.
+        // This is intentionally not restricted to pending_review.
 
-        profile.reviewNote = note.trim();
-        profile.reviewedBy = req.user._id;
-        profile.reviewedAt = new Date();
-        profile.approvedAt = action === "approve" ? new Date() : null;
+        const newStatus = REVIEW_ACTIONS[action];
+        const now = new Date();
+
+        profile.status = newStatus;
+        profile.reviewNote = trimmedNote;
+        profile.reviewedBy = req.admin._id;
+        profile.reviewedAt = now;
+        profile.approvedAt = action === "approve" ? now : null;
 
         await profile.save();
 
         return res.status(200).json({
             success: true,
-            message: `Profile ${profile.status.replace("_", " ")} successfully.`,
+            message: `Profile status updated to ${newStatus.replaceAll("_", " ")}.`,
             data: { profile },
         });
     } catch (error) {

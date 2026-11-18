@@ -1,18 +1,21 @@
+
 import { Router } from "express";
-import { authenticate } from "../../middleware/auth.middleware.js";
-import { requireAdmin } from "../middleware/requireAdmin.js";
+
 import {
-    listPendingProfiles,
+    listProfiles,
     getProfileForReview,
     reviewProfile,
-} from "../controllers/adminProfile.controller.js";
+    getProfileStats,
+} from "../../controllers/admin/adminProfile.controller.js";
+import { authenticateAdmin } from "../../middleware/adminAuth.middleware.js";
 
 const router = Router();
 
-router.use(authenticate, requireAdmin);
+router.use(authenticateAdmin);
 
-router.get("/profiles", listPendingProfiles);
-router.get("/profiles/:id", getProfileForReview);
-router.patch("/profiles/:id/review", reviewProfile);
+router.get("/stats", getProfileStats);
+router.get("/", listProfiles);
+router.get("/:id", getProfileForReview);
+router.patch("/:id/review", reviewProfile);
 
 export default router;

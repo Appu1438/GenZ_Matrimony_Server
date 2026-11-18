@@ -12,6 +12,8 @@ import profilePhotoRoutes from "./routes/user/profilePhoto.routes.js";
 
 //Admin Routes
 import adminAuthRoutes from "./routes/admin/adminAuth.routes.js";
+import adminUserRoutes from "./routes/admin/adminUser.routes.js";
+import adminProfileRoutes from "./routes/admin/adminProfile.routes.js";
 
 
 dotenv.config();
@@ -51,12 +53,6 @@ app.get("/api/health", (_req, res) => {
     });
 });
 
-// Authentication routes
-app.use("/api/auth", authRoutes);
-
-// Profile routes
-app.use("/api/profile", profileRoutes);
-
 // Profile photo static directory
 app.use(
     "/uploads/profile-images",
@@ -93,13 +89,14 @@ app.use(
     )
 );
 
-// Profile photo upload/delete routes
-app.use(
-    "/api/profile/photos",
-    profilePhotoRoutes
-);
+
+app.use("/api/auth", authRoutes);
+app.use("/api/profile", profileRoutes);
+app.use("/api/profile/photos", profilePhotoRoutes);
 
 app.use("/api/admin/auth", adminAuthRoutes);
+app.use("/api/admin/users", adminUserRoutes);
+app.use("/api/admin/profiles", adminProfileRoutes);
 
 // 404 handler
 app.use((req, res) => {

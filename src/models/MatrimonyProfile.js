@@ -547,7 +547,7 @@ const matrimonyProfileSchema = new Schema(
 
         reviewedBy: {
             type: Schema.Types.ObjectId,
-            ref: "User",
+            ref: "Admin",
             default: null,
         },
 
